@@ -1,4 +1,8 @@
 import { buildSystemPrompt, type AgeBand } from "./prompts";
+import { demoQuizJson } from "./quizBank";
+
+export type { QuizQuestion } from "./quizBank";
+export { buildDemoQuiz, demoQuizJson } from "./quizBank";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -97,85 +101,6 @@ export function demoReply(userText: string, attemptLevel = 1): string {
   return generic[stage - 1];
 }
 
-export function demoQuizJson(topic?: string): string {
-  const t = (topic || "mixed").toLowerCase();
-  const bank: Record<string, unknown[]> = {
-    science: [
-      {
-        question: "Why does the sky look blue on a clear day?",
-        options: [
-          "The ocean paints it",
-          "Air scatters blue light most",
-          "The sun is blue",
-          "Clouds are blue underneath",
-        ],
-        correctIndex: 1,
-        explanation:
-          "Sunlight has many colors. Tiny bits of air scatter blue light more than other colors, so we see a blue sky.",
-      },
-      {
-        question: "What do plants need for photosynthesis?",
-        options: ["Only soil", "Only darkness", "Sunlight, water, and carbon dioxide", "Only wind"],
-        correctIndex: 2,
-        explanation: "Plants use sunlight, water, and carbon dioxide to make food.",
-      },
-    ],
-    space: [
-      {
-        question: "Which planet is known as the Red Planet?",
-        options: ["Venus", "Jupiter", "Mars", "Mercury"],
-        correctIndex: 2,
-        explanation: "Mars looks reddish because of iron-rich dust on its surface.",
-      },
-      {
-        question: "Why do astronauts wear space suits?",
-        options: [
-          "To look cool in photos",
-          "To carry food only",
-          "To have air, pressure, and temperature protection",
-          "Because space is noisy",
-        ],
-        correctIndex: 2,
-        explanation: "Space has no breathable air and extreme temperatures — suits keep astronauts safe.",
-      },
-    ],
-    math: [
-      {
-        question: "What is 7 × 6?",
-        options: ["36", "42", "48", "56"],
-        correctIndex: 1,
-        explanation: "7 groups of 6 (or 6 groups of 7) make 42.",
-      },
-      {
-        question: "Which fraction is larger: 1/2 or 1/4?",
-        options: ["1/4", "They are equal", "1/2", "Neither exists"],
-        correctIndex: 2,
-        explanation: "Half of something is more than a quarter of it.",
-      },
-    ],
-  };
-
-  const mixed = [
-    ...(bank.science || []),
-    ...(bank.space || []),
-    ...(bank.math || []),
-    {
-      question: "What is a program on a computer?",
-      options: [
-        "A random spark",
-        "A list of instructions to follow",
-        "A type of battery",
-        "A kind of screen",
-      ],
-      correctIndex: 1,
-      explanation: "Programs are step-by-step instructions computers follow very quickly.",
-    },
-  ];
-
-  const pick = t in bank ? [...bank[t], ...mixed].slice(0, 4) : mixed.slice(0, 4);
-  return JSON.stringify(pick);
-}
-
 type GenOptions = {
   system?: string;
   messages: ChatTurn[];
@@ -184,6 +109,8 @@ type GenOptions = {
   ageBand?: AgeBand;
   attemptLevel?: number;
   topicFocus?: string;
+  quizSeed?: number;
+  excludeQuestions?: string[];
 };
 
 async function chatWithAnthropic(options: {
@@ -303,10 +230,27 @@ export async function generateReply(
   const isQuiz =
     system.toLowerCase().includes("quiz") ||
     lastUser.toLowerCase().includes("generate the quiz");
-  const topicMatch = system.match(/interest in: ([^.]+)/i);
+  const topicMatch = system.match(/focused on ([^.\n]+)/i);
+  let topic = "mixed";
+  if (topicMatch?.[1]) {
+    const raw = topicMatch[1].toLowerCase();
+    if (raw.includes("science")) topic = "science";
+    else if (raw.includes("space")) topic = "space";
+    else if (raw.includes("math")) topic = "math";
+    else if (raw.includes("nature")) topic = "nature";
+    else if (raw.includes("history")) topic = "history";
+    else if (raw.includes("art")) topic = "arts";
+    else if (raw.includes("tech")) topic = "tech";
+  }
+  // Prefer explicit seed from user message: "seed=12345"
+  const seedFromMsg = lastUser.match(/seed\s*=\s*(\d+)/i);
+  const seed = options.quizSeed ?? (seedFromMsg ? Number(seedFromMsg[1]) : Date.now());
+  const excludeFromMsg = [...lastUser.matchAll(/EXCLUDE:\s*(.+)$/gim)].flatMap((m) =>
+    m[1].split("|").map((s) => s.trim()).filter(Boolean),
+  );
   return {
     text: isQuiz
-      ? demoQuizJson(topicMatch?.[1])
+      ? demoQuizJson(topic, seed, options.excludeQuestions || excludeFromMsg)
       : demoReply(lastUser, options.attemptLevel || 1),
     demo: true,
     provider: "demo",

@@ -197,6 +197,7 @@ export function VentureApp() {
   const [adventureId, setAdventureId] = useState<string | null>(null);
   const [adventureStep, setAdventureStep] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [recentQuizQuestions, setRecentQuizQuestions] = useState<string[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const meterPct = Math.min(turnCount / 6, 1) * 100;
@@ -519,11 +520,29 @@ export function VentureApp() {
       .map((id) => CATEGORIES.find((c) => c.id === id)?.label.replace(" Explorer", ""))
       .filter(Boolean);
 
-    const quizSystemPrompt = `You generate quiz questions for a kids' educational app called Venture 1. Create exactly 4 fun, age-appropriate multiple-choice questions for kids aged 6-14, medium difficulty, focused on ${quizTopic === "mixed" ? "a mix of science, nature, space, history, math, arts, and technology" : quizTopic}.${
+    const seed = Date.now() ^ (Math.floor(Math.random() * 1_000_000_000));
+    const exclude = recentQuizQuestions.slice(-24);
+    const excludeLine = exclude.length
+      ? `\nDo NOT repeat any of these recent questions (wording can be similar topics, but each question text must be new):\n- ${exclude.join("\n- ")}`
+      : "";
+
+    const focus =
+      quizTopic === "mixed"
+        ? "a fresh mix of science, nature, space, history, math, arts, and technology"
+        : quizTopic;
+
+    const quizSystemPrompt = `You generate quiz questions for a kids' educational app called Venture 1. Create exactly 4 fun, age-appropriate multiple-choice questions for kids aged 6-14, medium difficulty, focused on ${focus}.${
       topicHints.length
         ? ` The child has shown interest in: ${topicHints.join(", ")}. Naturally include at least 2 questions touching those topics.`
         : ""
     }
+
+IMPORTANT VARIETY RULES:
+- Every quiz must feel different from previous ones. Invent NEW question wording each time.
+- Vary subtopics (don't always ask about the sky, Mars, or 7×6).
+- Shuffle which subjects appear and invent new distractor options.
+- Randomization seed for this request: ${seed}.${excludeLine}
+
 Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no extra commentary — exactly this shape:
 [{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]`;
 
@@ -535,8 +554,17 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
           model: "claude-sonnet-4-6",
           max_tokens: 1200,
           system: quizSystemPrompt,
-          messages: [{ role: "user", content: "Generate the quiz now." }],
+          messages: [
+            {
+              role: "user",
+              content: `Generate the quiz now. seed=${seed}${
+                exclude.length ? `\nEXCLUDE: ${exclude.join(" | ")}` : ""
+              }`,
+            },
+          ],
           ageBand,
+          quizSeed: seed,
+          excludeQuestions: exclude,
         }),
       });
       if (!res.ok) throw new Error("quiz failed");
@@ -546,6 +574,13 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         : data.reply || "";
       raw = raw.replace(/```json|```/g, "").trim();
       const questions = JSON.parse(raw) as QuizQuestion[];
+      if (!Array.isArray(questions) || questions.length < 1) throw new Error("bad quiz");
+
+      setRecentQuizQuestions((prev) => {
+        const next = [...prev, ...questions.map((q) => q.question)];
+        return next.slice(-40);
+      });
+
       setItems((prev) => [
         ...prev.filter((i) => i.kind !== "typing"),
         {

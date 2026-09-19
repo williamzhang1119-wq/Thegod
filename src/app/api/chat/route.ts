@@ -20,6 +20,8 @@ type Body = {
   attemptLevel?: number;
   topicFocus?: string;
   stream?: boolean;
+  quizSeed?: number;
+  excludeQuestions?: string[];
 };
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -80,6 +82,13 @@ export async function POST(req: Request) {
       : 1;
   const topicFocus =
     typeof body.topicFocus === "string" ? body.topicFocus.slice(0, 80) : undefined;
+  const quizSeed =
+    typeof body.quizSeed === "number" && Number.isFinite(body.quizSeed)
+      ? Math.floor(body.quizSeed)
+      : undefined;
+  const excludeQuestions = Array.isArray(body.excludeQuestions)
+    ? body.excludeQuestions.filter((q): q is string => typeof q === "string").slice(0, 40)
+    : undefined;
 
   const system =
     typeof body.system === "string" && body.system.trim()
@@ -177,6 +186,8 @@ export async function POST(req: Request) {
               ageBand,
               attemptLevel,
               topicFocus,
+              quizSeed,
+              excludeQuestions,
             },
             (delta) => send({ type: "delta", text: delta }),
           );
@@ -224,6 +235,8 @@ export async function POST(req: Request) {
       ageBand,
       attemptLevel,
       topicFocus,
+      quizSeed,
+      excludeQuestions,
     });
 
     if (openaiKey && !result.demo) {
