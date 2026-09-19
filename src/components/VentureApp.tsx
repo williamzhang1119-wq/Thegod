@@ -9,19 +9,33 @@ import {
   useState,
 } from "react";
 import {
+  COACH_ACTIONS,
+  SUBJECTS,
+  detectRevealRequest,
+  detectStuck,
+  inferSubject,
+  type CoachMode,
+  type SubjectFocus,
+} from "@/lib/coach";
+import {
   ADVENTURES,
   AGE_BANDS,
   dailyChallengeForToday,
   type AgeBand,
 } from "@/lib/prompts";
 import {
+  addConcept,
   addTopic,
+  bumpSessionInsight,
   defaultProgress,
   levelFromXp,
   loadProgress,
+  masteryPct,
+  recordMastery,
   saveProgress,
   todayKey,
   touchStreak,
+  weakSubjects,
   type ProgressState,
 } from "@/lib/progress";
 
@@ -36,7 +50,14 @@ type QuizQuestion = {
 };
 
 type ChatItem =
-  | { kind: "message"; id: string; role: Role; content: string; html?: boolean }
+  | {
+      kind: "message";
+      id: string;
+      role: Role;
+      content: string;
+      html?: boolean;
+      coachable?: boolean;
+    }
   | { kind: "toast"; id: string; content: string }
   | { kind: "typing"; id: string }
   | {
@@ -102,24 +123,25 @@ const CATEGORIES = [
 ] as const;
 
 const STARTERS = [
-  "Why is the sky blue?",
-  "What's 12 x 8?",
-  "How do computers think?",
-  "Why did dinosaurs go extinct?",
-  "How does money work?",
-  "Why do we dream?",
+  "Help me with 3/4 + 1/8",
+  "What's the main idea of this paragraph?",
+  "How do I start my essay?",
+  "Why does ice float?",
+  "Check my work: 12 × 8 = 96",
+  "I don't get fractions — help",
 ];
 
 const QUIZ_TOPICS = [
   { id: "mixed", label: "Mixed" },
-  { id: "science", label: "Science" },
-  { id: "space", label: "Space" },
   { id: "math", label: "Math" },
+  { id: "science", label: "Science" },
+  { id: "reading", label: "Reading" },
 ];
 
 const STORAGE_BADGES = "venture1-badges";
-const STORAGE_CHAT = "venture1-chat-v2";
+const STORAGE_CHAT = "venture1-chat-v3";
 const STORAGE_AGE = "venture1-age";
+const STORAGE_SUBJECT = "venture1-subject";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -165,6 +187,9 @@ interface SpeechRecognitionErrorEvent extends Event {
   error: string;
 }
 
+const WELCOME =
+  "Hi — I'm Venture 1 🧭 the homework helper that never gives the answer first. Pick a subject, paste a problem, and use the big buttons under my replies when you need simpler, another way, a hint, or a check.";
+
 export function VentureApp() {
   const daily = useMemo(() => dailyChallengeForToday(), []);
   const [items, setItems] = useState<ChatItem[]>([
@@ -172,8 +197,8 @@ export function VentureApp() {
       kind: "message",
       id: "welcome",
       role: "assistant",
-      content:
-        "Hi there! I'm Venture 1 🧭 Pick your explorer level, take today's challenge, or ask anything — I'll guide you with hints, not spoilers!",
+      content: WELCOME,
+      coachable: false,
     },
   ]);
   const [history, setHistory] = useState<ChatTurn[]>([]);
@@ -189,6 +214,7 @@ export function VentureApp() {
   const [listening, setListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [ageBand, setAgeBand] = useState<AgeBand>("explorer");
+  const [subjectFocus, setSubjectFocus] = useState<SubjectFocus>("homework");
   const [attemptLevel, setAttemptLevel] = useState(1);
   const [activeQuestion, setActiveQuestion] = useState<string | null>(null);
   const [quizTopic, setQuizTopic] = useState("mixed");
@@ -197,11 +223,13 @@ export function VentureApp() {
   const [adventureId, setAdventureId] = useState<string | null>(null);
   const [adventureStep, setAdventureStep] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [threadAttempts, setThreadAttempts] = useState(0);
   const [recentQuizQuestions, setRecentQuizQuestions] = useState<string[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const meterPct = Math.min(turnCount / 6, 1) * 100;
   const levelInfo = levelFromXp(progress.xp);
+  const weak = useMemo(() => weakSubjects(progress), [progress]);
 
   useEffect(() => {
     setCanSpeak(typeof window !== "undefined" && "speechSynthesis" in window);
@@ -212,9 +240,11 @@ export function VentureApp() {
       if (raw) setEarnedBadges(new Set(JSON.parse(raw) as string[]));
       const age = localStorage.getItem(STORAGE_AGE) as AgeBand | null;
       if (age === "little" || age === "explorer" || age === "teen") setAgeBand(age);
+      const sub = localStorage.getItem(STORAGE_SUBJECT) as SubjectFocus | null;
+      if (sub && sub in SUBJECTS) setSubjectFocus(sub);
       const saved = loadProgress();
       setProgress(touchStreak(saved));
-      const chatRaw = localStorage.getItem(STORAGE_CHAT);
+      const chatRaw = localStorage.getItem(STORAGE_CHAT) || localStorage.getItem("venture1-chat-v2");
       if (chatRaw) {
         const parsed = JSON.parse(chatRaw) as { items?: ChatItem[]; history?: ChatTurn[] };
         if (parsed.items?.length) setItems(parsed.items.filter((i) => i.kind !== "typing"));
@@ -236,6 +266,7 @@ export function VentureApp() {
     try {
       localStorage.setItem(STORAGE_BADGES, JSON.stringify(Array.from(earnedBadges)));
       localStorage.setItem(STORAGE_AGE, ageBand);
+      localStorage.setItem(STORAGE_SUBJECT, subjectFocus);
       saveProgress({ ...progress, badges: Array.from(earnedBadges) });
       localStorage.setItem(
         STORAGE_CHAT,
@@ -247,7 +278,7 @@ export function VentureApp() {
     } catch {
       // ignore
     }
-  }, [earnedBadges, ageBand, progress, items, history, hydrated]);
+  }, [earnedBadges, ageBand, subjectFocus, progress, items, history, hydrated]);
 
   const speak = (text: string) => {
     if (!readAloud || !canSpeak) return;
@@ -308,9 +339,10 @@ export function VentureApp() {
   };
 
   async function callChatStream(payload: {
-    system?: string;
     messages: ChatTurn[];
     attemptLevel: number;
+    coachMode?: CoachMode;
+    stuck?: boolean;
     onDelta: (t: string) => void;
   }): Promise<string> {
     const res = await fetch("/api/chat", {
@@ -322,10 +354,13 @@ export function VentureApp() {
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 1200,
-        system: payload.system,
         messages: payload.messages,
         ageBand,
         attemptLevel: payload.attemptLevel,
+        subjectFocus,
+        coachMode: payload.coachMode,
+        stuck: payload.stuck,
+        masteryHints: weak,
         stream: true,
       }),
     });
@@ -335,7 +370,6 @@ export function VentureApp() {
       throw new Error(`API returned ${res.status}: ${errText}`);
     }
 
-    // Non-stream JSON fallback
     const ctype = res.headers.get("content-type") || "";
     if (!ctype.includes("text/event-stream")) {
       const data = (await res.json()) as {
@@ -388,17 +422,51 @@ export function VentureApp() {
     return full.trim();
   }
 
-  async function sendMessage(raw?: string) {
-    const text = (raw ?? input).trim();
+  async function sendMessage(
+    raw?: string,
+    opts?: { coachMode?: CoachMode; silentUser?: boolean },
+  ) {
+    const coachMode = opts?.coachMode;
+    const text =
+      raw?.trim() ||
+      (coachMode
+        ? ({
+            got_it: "I get it!",
+            simpler: "Can you make that simpler?",
+            another_way: "Explain it another way.",
+            example: "Show me an example.",
+            hint: "Give me a hint.",
+            check_work: "Can you check my work?",
+            quiz_me: "Quiz me on this.",
+          }[coachMode] as string)
+        : input.trim());
     if (!text || busy) return;
 
     setShowStarters(false);
-    setInput("");
-    setItems((prev) => [...prev, { kind: "message", id: uid(), role: "user", content: text }]);
+    if (!opts?.silentUser && !coachMode) setInput("");
 
-    const stage = activeQuestion ? Math.min(5, attemptLevel + 1) : 1;
-    if (!activeQuestion) setActiveQuestion(text);
+    const inferred = inferSubject(text);
+    if (inferred && subjectFocus === "homework") {
+      // soft auto-tag without fighting explicit subject picks later
+    }
+    if (inferred && subjectFocus === "open") {
+      setSubjectFocus(inferred);
+    }
+
+    if (!opts?.silentUser) {
+      setItems((prev) => [...prev, { kind: "message", id: uid(), role: "user", content: text }]);
+    }
+
+    const stuck = detectStuck(text) || coachMode === "simpler";
+    const wantsReveal = detectRevealRequest(text);
+    let stage = activeQuestion ? Math.min(5, attemptLevel + (coachMode === "hint" || !coachMode ? 1 : 0)) : 1;
+    if (coachMode === "hint") stage = Math.min(5, Math.max(attemptLevel + 1, 2));
+    if (coachMode && coachMode !== "hint") stage = attemptLevel;
+    if (stuck && stage < 3) stage = Math.min(3, stage + 1);
+    if (wantsReveal) stage = 5;
+    if (!activeQuestion && !coachMode) setActiveQuestion(text);
     setAttemptLevel(stage);
+    setThreadAttempts((n) => n + 1);
 
     const nextHistory: ChatTurn[] = [...history, { role: "user", content: text }];
     setHistory(nextHistory);
@@ -421,8 +489,10 @@ export function VentureApp() {
     setBusy(true);
     const streamId = uid();
     setItems((prev) => [
-      ...prev,
-      { kind: "message", id: streamId, role: "assistant", content: "" },
+      ...prev.map((item) =>
+        item.kind === "message" ? { ...item, coachable: false } : item,
+      ),
+      { kind: "message", id: streamId, role: "assistant", content: "", coachable: true },
     ]);
 
     try {
@@ -430,6 +500,8 @@ export function VentureApp() {
         (await callChatStream({
           messages: nextHistory,
           attemptLevel: stage,
+          coachMode,
+          stuck,
           onDelta: (delta) => {
             setItems((prev) =>
               prev.map((item) =>
@@ -443,18 +515,47 @@ export function VentureApp() {
 
       setItems((prev) =>
         prev.map((item) =>
-          item.kind === "message" && item.id === streamId ? { ...item, content: reply } : item,
+          item.kind === "message" && item.id === streamId
+            ? { ...item, content: reply, coachable: true }
+            : item,
         ),
       );
       setHistory((h) => [...h, { role: "assistant", content: reply }]);
       speak(reply);
       bumpMeter();
       checkForNewBadges(`${text} ${reply}`);
-      setProgress((p) => ({
-        ...touchStreak(p),
-        questionsAsked: p.questionsAsked + 1,
-        xp: p.xp + 8 + stage * 2,
-      }));
+
+      const subjectKey = subjectFocus === "open" ? inferred || "open" : subjectFocus;
+      const success =
+        coachMode === "got_it" || coachMode === "quiz_me" || (stage >= 3 && !wantsReveal);
+      const reveal = stage >= 5 || wantsReveal;
+
+      setProgress((p) => {
+        let next = touchStreak(p);
+        next = {
+          ...next,
+          questionsAsked: next.questionsAsked + 1,
+          xp: next.xp + 8 + stage * 2 + (coachMode === "got_it" ? 12 : 0),
+          coachUses: next.coachUses + (coachMode ? 1 : 0),
+          revealsUsed: next.revealsUsed + (reveal ? 1 : 0),
+        };
+        if (reveal) {
+          next = {
+            ...next,
+            attemptsBeforeReveal: [...next.attemptsBeforeReveal.slice(-19), threadAttempts + 1],
+          };
+        }
+        next = recordMastery(next, subjectKey, success);
+        next = bumpSessionInsight(next, {
+          coach: Boolean(coachMode),
+          reveal,
+          subject: subjectKey,
+        });
+        if (coachMode === "got_it" && activeQuestion) {
+          next = addConcept(next, activeQuestion.slice(0, 60));
+        }
+        return next;
+      });
 
       if (daily.prompt.toLowerCase() === (activeQuestion || text).toLowerCase()) {
         setProgress((p) =>
@@ -472,12 +573,9 @@ export function VentureApp() {
         ]);
       }
 
-      // Adventure step advance if matching
       if (adventureId) {
         const adv = ADVENTURES.find((a) => a.id === adventureId);
-        if (adv && adventureStep < adv.steps.length - 1) {
-          // keep going
-        } else if (adv && adventureStep >= adv.steps.length - 1) {
+        if (adv && adventureStep >= adv.steps.length - 1) {
           setProgress((p) => ({
             ...p,
             adventuresCompleted: p.adventuresCompleted + 1,
@@ -502,6 +600,7 @@ export function VentureApp() {
             ? {
                 ...item,
                 content: "Oops, I got tangled up in my own thoughts! Can you try asking me again?",
+                coachable: true,
               }
             : item,
         ),
@@ -509,6 +608,14 @@ export function VentureApp() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function onCoach(mode: CoachMode) {
+    if (mode === "quiz_me" && !history.length) {
+      void startQuiz();
+      return;
+    }
+    void sendMessage(undefined, { coachMode: mode });
   }
 
   async function startQuiz() {
@@ -528,13 +635,17 @@ export function VentureApp() {
 
     const focus =
       quizTopic === "mixed"
-        ? "a fresh mix of science, nature, space, history, math, arts, and technology"
+        ? subjectFocus === "open" || subjectFocus === "homework"
+          ? "math, reading, science, and writing homework skills"
+          : SUBJECTS[subjectFocus].label
         : quizTopic;
 
-    const quizSystemPrompt = `You generate quiz questions for a kids' educational app called Venture 1. Create exactly 4 fun, age-appropriate multiple-choice questions for kids aged 6-14, medium difficulty, focused on ${focus}.${
+    const quizSystemPrompt = `You generate quiz questions for Venture 1, a homework helper for kids. Create exactly 4 fun, age-appropriate multiple-choice questions for kids aged 6-14, medium difficulty, focused on ${focus}.${
       topicHints.length
         ? ` The child has shown interest in: ${topicHints.join(", ")}. Naturally include at least 2 questions touching those topics.`
         : ""
+    }${
+      weak.length ? ` Include at least one question reinforcing weak spots: ${weak.join(", ")}.` : ""
     }
 
 IMPORTANT VARIETY RULES:
@@ -563,6 +674,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
             },
           ],
           ageBand,
+          subjectFocus,
           quizSeed: seed,
           excludeQuestions: exclude,
         }),
@@ -627,7 +739,12 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
       score: correct ? quiz.score + 1 : quiz.score,
     });
     bumpMeter();
-    if (correct) gainXp(10, quizTopic);
+    if (correct) {
+      gainXp(10, quizTopic);
+      setProgress((p) => recordMastery(p, subjectFocus, true));
+    } else {
+      setProgress((p) => recordMastery(p, subjectFocus, false));
+    }
   }
 
   function onQuizNext(quizId: string) {
@@ -654,6 +771,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
     setAdventureStep(0);
     setShowStarters(false);
     setAttemptLevel(1);
+    setThreadAttempts(0);
     setActiveQuestion(adv.steps[0]);
     setItems((prev) => [
       ...prev,
@@ -662,6 +780,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         id: uid(),
         role: "assistant",
         content: `${adv.emoji} Adventure started: ${adv.title}!\n\nStep 1/${adv.steps.length}: ${adv.steps[0]}`,
+        coachable: true,
       },
     ]);
   }
@@ -677,6 +796,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
     }
     setAdventureStep(next);
     setAttemptLevel(1);
+    setThreadAttempts(0);
     setActiveQuestion(adv.steps[next]);
     setItems((prev) => [
       ...prev,
@@ -685,6 +805,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         id: uid(),
         role: "assistant",
         content: `${adv.emoji} Step ${next + 1}/${adv.steps.length}: ${adv.steps[next]}`,
+        coachable: true,
       },
     ]);
   }
@@ -692,6 +813,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
   function newQuestionMode() {
     setActiveQuestion(null);
     setAttemptLevel(1);
+    setThreadAttempts(0);
     setItems((prev) => [
       ...prev,
       {
@@ -708,16 +830,31 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         kind: "message",
         id: "welcome",
         role: "assistant",
-        content:
-          "Fresh map! I'm Venture 1 🧭 What do you want to explore next?",
+        content: "Fresh map! I'm Venture 1 🧭 Paste a homework problem and I'll guide — not spoil.",
+        coachable: false,
       },
     ]);
     setHistory([]);
     setShowStarters(true);
     setActiveQuestion(null);
     setAttemptLevel(1);
+    setThreadAttempts(0);
     setAdventureId(null);
     setAdventureStep(0);
+  }
+
+  function practiceWeakSpot() {
+    if (!weak.length) {
+      void sendMessage("Quiz me on something I should practice.");
+      return;
+    }
+    const spot = weak[0];
+    setSubjectFocus(
+      (["math", "reading", "writing", "science"] as SubjectFocus[]).includes(spot as SubjectFocus)
+        ? (spot as SubjectFocus)
+        : "homework",
+    );
+    void sendMessage(`I want to practice ${spot}. Give me one guided problem — don't reveal the answer yet.`);
   }
 
   function toggleMic() {
@@ -764,6 +901,9 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
   const meterStyle = useMemo(() => ({ width: `${meterPct}%` }), [meterPct]);
   const xpStyle = useMemo(() => ({ width: `${levelInfo.pct}%` }), [levelInfo.pct]);
   const dailyDone = progress.dailyChallengeDone === todayKey();
+  const lastCoachableId = [...items]
+    .reverse()
+    .find((i) => i.kind === "message" && i.role === "assistant" && i.coachable)?.id;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -776,6 +916,8 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
       void sendMessage();
     }
   }
+
+  const todayInsight = progress.sessionInsights.find((s) => s.day === todayKey());
 
   return (
     <div className="app">
@@ -800,7 +942,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         </svg>
         <div className="header-copy">
           <h1>Venture 1</h1>
-          <p>Every question is an adventure</p>
+          <p>The homework helper that never gives the answer first</p>
         </div>
         <div className="header-meters">
           <div className="meter-wrap">
@@ -847,8 +989,30 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
               ❓ Asked <strong>{progress.questionsAsked}</strong>
             </div>
             <div className="stat-chip">
-              🎯 Quizzes <strong>{progress.quizzesCompleted}</strong>
+              🧠 Mastery{" "}
+              <strong>
+                {progress.mastery.length
+                  ? `${Math.round(
+                      progress.mastery.reduce((s, m) => s + masteryPct(m), 0) /
+                        progress.mastery.length,
+                    )}%`
+                  : "—"}
+              </strong>
             </div>
+          </div>
+
+          <div className="subject-grid" role="group" aria-label="Subject focus">
+            {(Object.keys(SUBJECTS) as SubjectFocus[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`subject-chip${subjectFocus === key ? " active" : ""}`}
+                onClick={() => setSubjectFocus(key)}
+              >
+                <span>{SUBJECTS[key].emoji}</span>
+                {SUBJECTS[key].label}
+              </button>
+            ))}
           </div>
 
           <div className="toolbar">
@@ -879,6 +1043,14 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
             <button type="button" className="tool-btn" onClick={() => setShowParent(true)}>
               👪 Parent report
             </button>
+            <button
+              type="button"
+              className="tool-btn"
+              onClick={practiceWeakSpot}
+              disabled={busy}
+            >
+              🧩 Practice weak spot
+            </button>
             <button type="button" className="tool-btn" onClick={newQuestionMode} disabled={busy}>
               🆕 New question
             </button>
@@ -900,6 +1072,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
               onClick={() => {
                 setActiveQuestion(null);
                 setAttemptLevel(1);
+                setThreadAttempts(0);
                 void sendMessage(daily.prompt);
               }}
             >
@@ -930,6 +1103,26 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
             </div>
           </div>
 
+          {progress.mastery.length ? (
+            <div className="mastery-card">
+              <h3>📈 Subject mastery</h3>
+              <div className="mastery-list">
+                {[...progress.mastery]
+                  .sort((a, b) => masteryPct(b) - masteryPct(a))
+                  .slice(0, 5)
+                  .map((m) => (
+                    <div key={m.subject} className="mastery-row">
+                      <span>{m.subject}</span>
+                      <div className="mastery-bar">
+                        <div className="mastery-fill" style={{ width: `${masteryPct(m)}%` }} />
+                      </div>
+                      <strong>{masteryPct(m)}%</strong>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="passport" id="passport">
             <span className="passport-label">🎒 Passport</span>
             {CATEGORIES.map((cat) => {
@@ -956,7 +1149,11 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
           <div className="hint-ladder" aria-label="Hint ladder">
             <div className="hint-ladder-top">
               <span>Hint ladder · Stage {attemptLevel}/5</span>
-              <span>{activeQuestion ? "Same question thread" : "Ask something to begin"}</span>
+              <span>
+                {activeQuestion
+                  ? `Attempts this thread: ${threadAttempts}`
+                  : "Paste a problem to begin"}
+              </span>
             </div>
             <div className="hint-steps">
               {[1, 2, 3, 4, 5].map((n) => (
@@ -1071,23 +1268,42 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
               return (
                 <div key={item.id} className={`row ${item.role === "user" ? "user" : "bot"}`}>
                   <div className="avatar">{item.role === "user" ? "🙂" : "🧭"}</div>
-                  {item.html ? (
-                    <div className="bubble">
-                      I can&apos;t draw pictures on this plan yet! Ask a parent or guardian to upgrade
-                      your membership at{" "}
-                      <a
-                        className="upgrade-link"
-                        href="https://kiddo-create-lab.lovable.app/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        kiddo-create-lab.lovable.app
-                      </a>{" "}
-                      to unlock image creation.
-                    </div>
-                  ) : (
-                    <div className="bubble">{item.content}</div>
-                  )}
+                  <div className="bubble-col">
+                    {item.html ? (
+                      <div className="bubble">
+                        I can&apos;t draw pictures on this plan yet! Ask a parent or guardian to upgrade
+                        your membership at{" "}
+                        <a
+                          className="upgrade-link"
+                          href="https://kiddo-create-lab.lovable.app/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          kiddo-create-lab.lovable.app
+                        </a>{" "}
+                        to unlock image creation.
+                      </div>
+                    ) : (
+                      <div className="bubble">{item.content}</div>
+                    )}
+                    {item.role === "assistant" &&
+                    item.coachable &&
+                    item.id === lastCoachableId &&
+                    !busy ? (
+                      <div className="coach-actions" role="group" aria-label="Coach actions">
+                        {COACH_ACTIONS.map((action) => (
+                          <button
+                            key={action.id}
+                            type="button"
+                            className={`coach-btn${action.id === "got_it" ? " primary" : ""}`}
+                            onClick={() => onCoach(action.id)}
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               );
             })}
@@ -1104,6 +1320,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
                   onClick={() => {
                     setActiveQuestion(null);
                     setAttemptLevel(1);
+                    setThreadAttempts(0);
                     void sendMessage(s);
                   }}
                 >
@@ -1118,7 +1335,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="What do you want to explore today?"
+              placeholder="Paste a homework problem or ask for help…"
               maxLength={300}
               disabled={busy}
               autoComplete="off"
@@ -1141,7 +1358,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
           </form>
           <div className="voice-status">{voiceStatus}</div>
           <div className="footnote">
-            Venture 1 asks questions to help you think — it won&apos;t just hand you the answer!
+            One question at a time · attempt before the next step · never a copied answer
           </div>
         </section>
       </div>
@@ -1155,20 +1372,42 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
             </p>
             <ul>
               <li>Questions asked: {progress.questionsAsked}</li>
+              <li>Coach actions used: {progress.coachUses}</li>
+              <li>Full reveals used: {progress.revealsUsed}</li>
               <li>Quizzes completed: {progress.quizzesCompleted}</li>
               <li>Adventures completed: {progress.adventuresCompleted}</li>
               <li>Passport stamps: {earnedBadges.size}/{CATEGORIES.length}</li>
               <li>
-                Topics touched:{" "}
-                {progress.topicsTouched.length
-                  ? progress.topicsTouched.slice(-8).join(", ")
+                Weak spots: {weak.length ? weak.join(", ") : "none yet — keep practicing"}
+              </li>
+              <li>
+                Concepts noted:{" "}
+                {progress.conceptsLearned.length
+                  ? progress.conceptsLearned.slice(-5).join(" · ")
                   : "none yet"}
               </li>
+              <li>
+                Today: {todayInsight ? `${todayInsight.questions} turns, ${todayInsight.coachUses} coach taps` : "no session yet"}
+              </li>
               <li>Age band: {AGE_BANDS[ageBand].label}</li>
+              <li>Subject focus: {SUBJECTS[subjectFocus].label}</li>
               <li>Daily challenge today: {dailyDone ? "done" : "not yet"}</li>
             </ul>
+            {progress.mastery.length ? (
+              <div className="mastery-list compact">
+                {progress.mastery.map((m) => (
+                  <div key={m.subject} className="mastery-row">
+                    <span>{m.subject}</span>
+                    <div className="mastery-bar">
+                      <div className="mastery-fill" style={{ width: `${masteryPct(m)}%` }} />
+                    </div>
+                    <strong>{masteryPct(m)}%</strong>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <p>
-              Venture 1 uses a hint ladder so answers aren&apos;t handed over immediately. Chat stays
+              Venture 1 is built as a homework helper that never gives the answer first. Chat stays
               on this device (browser storage) unless you clear it.
             </p>
             <div className="modal-actions">

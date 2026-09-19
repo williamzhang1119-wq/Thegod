@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { CoachMode, SubjectFocus } from "@/lib/coach";
 import { generateReply, streamReply, type ChatTurn } from "@/lib/openai";
 import {
   REFUSAL_MESSAGE,
@@ -8,6 +9,25 @@ import {
 import { moderateWithOpenAI, redactPii, sanitizeUserMessage } from "@/lib/safety";
 
 export const runtime = "nodejs";
+
+const COACH_MODES: CoachMode[] = [
+  "got_it",
+  "simpler",
+  "another_way",
+  "example",
+  "hint",
+  "check_work",
+  "quiz_me",
+];
+
+const SUBJECTS: SubjectFocus[] = [
+  "homework",
+  "math",
+  "reading",
+  "writing",
+  "science",
+  "open",
+];
 
 type Body = {
   message?: string;
@@ -19,6 +39,10 @@ type Body = {
   ageBand?: AgeBand;
   attemptLevel?: number;
   topicFocus?: string;
+  subjectFocus?: SubjectFocus;
+  coachMode?: CoachMode;
+  masteryHints?: string[];
+  stuck?: boolean;
   stream?: boolean;
   quizSeed?: number;
   excludeQuestions?: string[];
@@ -60,6 +84,20 @@ function parseAgeBand(v: unknown): AgeBand | undefined {
   return undefined;
 }
 
+function parseCoachMode(v: unknown): CoachMode | undefined {
+  if (typeof v === "string" && (COACH_MODES as string[]).includes(v)) {
+    return v as CoachMode;
+  }
+  return undefined;
+}
+
+function parseSubject(v: unknown): SubjectFocus | undefined {
+  if (typeof v === "string" && (SUBJECTS as string[]).includes(v)) {
+    return v as SubjectFocus;
+  }
+  return undefined;
+}
+
 export async function POST(req: Request) {
   if (!allowRequest(clientKey(req))) {
     return NextResponse.json(
@@ -82,6 +120,15 @@ export async function POST(req: Request) {
       : 1;
   const topicFocus =
     typeof body.topicFocus === "string" ? body.topicFocus.slice(0, 80) : undefined;
+  const subjectFocus = parseSubject(body.subjectFocus);
+  const coachMode = parseCoachMode(body.coachMode);
+  const stuck = body.stuck === true;
+  const masteryHints = Array.isArray(body.masteryHints)
+    ? body.masteryHints
+        .filter((h): h is string => typeof h === "string")
+        .map((h) => h.slice(0, 40))
+        .slice(0, 5)
+    : undefined;
   const quizSeed =
     typeof body.quizSeed === "number" && Number.isFinite(body.quizSeed)
       ? Math.floor(body.quizSeed)
@@ -93,7 +140,15 @@ export async function POST(req: Request) {
   const system =
     typeof body.system === "string" && body.system.trim()
       ? body.system.slice(0, 12000)
-      : buildSystemPrompt({ ageBand, attemptLevel, topicFocus });
+      : buildSystemPrompt({
+          ageBand,
+          attemptLevel,
+          topicFocus,
+          subjectFocus,
+          coachMode,
+          masteryHints,
+          stuck,
+        });
 
   let messages: ChatTurn[] = [];
   if (Array.isArray(body.messages) && body.messages.length) {
@@ -169,6 +224,22 @@ export async function POST(req: Request) {
   const wantStream =
     body.stream === true || req.headers.get("accept")?.includes("text/event-stream");
 
+  const genOpts = {
+    system,
+    messages,
+    maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : 1200,
+    model: typeof body.model === "string" ? body.model : undefined,
+    ageBand,
+    attemptLevel,
+    topicFocus,
+    subjectFocus,
+    coachMode,
+    masteryHints,
+    stuck,
+    quizSeed,
+    excludeQuestions,
+  };
+
   if (wantStream) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -177,19 +248,8 @@ export async function POST(req: Request) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         };
         try {
-          const result = await streamReply(
-            {
-              system,
-              messages,
-              maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : 1200,
-              model: typeof body.model === "string" ? body.model : undefined,
-              ageBand,
-              attemptLevel,
-              topicFocus,
-              quizSeed,
-              excludeQuestions,
-            },
-            (delta) => send({ type: "delta", text: delta }),
+          const result = await streamReply(genOpts, (delta) =>
+            send({ type: "delta", text: delta }),
           );
           if (openaiKey && !result.demo) {
             const outMod = await moderateWithOpenAI(result.text, openaiKey);
@@ -206,6 +266,7 @@ export async function POST(req: Request) {
             demo: result.demo,
             provider: result.provider,
             attemptLevel,
+            coachMode: coachMode || null,
           });
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
@@ -227,17 +288,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await generateReply({
-      system,
-      messages,
-      maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : 1200,
-      model: typeof body.model === "string" ? body.model : undefined,
-      ageBand,
-      attemptLevel,
-      topicFocus,
-      quizSeed,
-      excludeQuestions,
-    });
+    const result = await generateReply(genOpts);
 
     if (openaiKey && !result.demo) {
       const outMod = await moderateWithOpenAI(result.text, openaiKey);
@@ -254,6 +305,7 @@ export async function POST(req: Request) {
         demo: result.demo,
         provider: result.provider,
         attemptLevel,
+        coachMode: coachMode || null,
       }),
     );
   } catch (err) {
