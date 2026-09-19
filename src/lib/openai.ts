@@ -1,3 +1,4 @@
+import type { CoachMode, SubjectFocus } from "./coach";
 import { buildSystemPrompt, type AgeBand } from "./prompts";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -6,9 +7,35 @@ export function isDemoMode(): boolean {
   return !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY;
 }
 
-export function demoReply(userText: string, attemptLevel = 1): string {
+export function demoReply(
+  userText: string,
+  attemptLevel = 1,
+  coachMode?: CoachMode,
+): string {
   const lower = userText.toLowerCase();
   const stage = Math.max(1, Math.min(attemptLevel, 5));
+
+  if (coachMode === "got_it") {
+    return "Awesome — you own that idea. In one short sentence, how would you explain it to a friend?";
+  }
+  if (coachMode === "simpler") {
+    return "Let's slow it down. Pretend the problem is a tiny puzzle with one first piece. What is the problem asking you to find — a number, a word, or a reason?";
+  }
+  if (coachMode === "another_way") {
+    return "New angle: imagine you're a detective. What clue in the question stands out first — a word, a number, or a picture in your head?";
+  }
+  if (coachMode === "example") {
+    return "Here's a cousin example (not your exact homework): 3 bags with 5 apples. What's one step you could take before saying the total?";
+  }
+  if (coachMode === "check_work") {
+    return "Happy to check! Paste your answer or steps. I'll tell you what looks strong and ask one fix question — I won't rewrite the whole thing for you.";
+  }
+  if (coachMode === "quiz_me") {
+    return "Quick check: what was the most important first step we talked about? Say it in your own words.";
+  }
+  if (coachMode === "hint") {
+    return "Hint time: look for one smaller question hiding inside this big one. What's that smaller question?";
+  }
 
   if (/\b(just )?tell me( the)? answer\b/.test(lower) || /\bi give up\b/.test(lower)) {
     return "Okay — unlock time. Tell me the very last clue you already noticed, and I'll fill in only the missing piece so you still own the discovery.";
@@ -184,6 +211,10 @@ type GenOptions = {
   ageBand?: AgeBand;
   attemptLevel?: number;
   topicFocus?: string;
+  subjectFocus?: SubjectFocus;
+  coachMode?: CoachMode;
+  masteryHints?: string[];
+  stuck?: boolean;
 };
 
 async function chatWithAnthropic(options: {
@@ -269,6 +300,10 @@ export async function generateReply(
       ageBand: options.ageBand,
       attemptLevel: options.attemptLevel,
       topicFocus: options.topicFocus,
+      subjectFocus: options.subjectFocus,
+      coachMode: options.coachMode,
+      masteryHints: options.masteryHints,
+      stuck: options.stuck,
     });
   const maxTokens = options.maxTokens || 1200;
   const messages = options.messages.slice(-16);
@@ -307,7 +342,7 @@ export async function generateReply(
   return {
     text: isQuiz
       ? demoQuizJson(topicMatch?.[1])
-      : demoReply(lastUser, options.attemptLevel || 1),
+      : demoReply(lastUser, options.attemptLevel || 1, options.coachMode),
     demo: true,
     provider: "demo",
   };
@@ -324,6 +359,10 @@ export async function streamReply(
       ageBand: options.ageBand,
       attemptLevel: options.attemptLevel,
       topicFocus: options.topicFocus,
+      subjectFocus: options.subjectFocus,
+      coachMode: options.coachMode,
+      masteryHints: options.masteryHints,
+      stuck: options.stuck,
     });
   const messages = options.messages.slice(-16);
   const maxTokens = options.maxTokens || 1200;
