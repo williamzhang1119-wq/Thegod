@@ -44,6 +44,8 @@ type Body = {
   masteryHints?: string[];
   stuck?: boolean;
   stream?: boolean;
+  quizSeed?: number;
+  excludeQuestions?: string[];
 };
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -126,6 +128,13 @@ export async function POST(req: Request) {
         .filter((h): h is string => typeof h === "string")
         .map((h) => h.slice(0, 40))
         .slice(0, 5)
+    : undefined;
+  const quizSeed =
+    typeof body.quizSeed === "number" && Number.isFinite(body.quizSeed)
+      ? Math.floor(body.quizSeed)
+      : undefined;
+  const excludeQuestions = Array.isArray(body.excludeQuestions)
+    ? body.excludeQuestions.filter((q): q is string => typeof q === "string").slice(0, 40)
     : undefined;
 
   const system =
@@ -227,6 +236,8 @@ export async function POST(req: Request) {
     coachMode,
     masteryHints,
     stuck,
+    quizSeed,
+    excludeQuestions,
   };
 
   if (wantStream) {
