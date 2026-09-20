@@ -17,7 +17,7 @@ const body = Nunito({
 export const metadata: Metadata = {
   title: "Venture 1",
   description:
-    "The homework helper that never gives the answer first — kid-safe Socratic tutoring with hints, coach buttons, and mastery tracking.",
+    "Kid-safe curious tutor — smarter homework help that never spoils first, plus wide knowledge of science, history, places, arts, and how things work.",
 };
 
 export default function RootLayout({

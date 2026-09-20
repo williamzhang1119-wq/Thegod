@@ -13,6 +13,8 @@ export type SubjectFocus =
   | "reading"
   | "writing"
   | "science"
+  | "world"
+  | "arts"
   | "open";
 
 export const SUBJECTS: Record<
@@ -22,13 +24,19 @@ export const SUBJECTS: Record<
   homework: {
     label: "Homework",
     emoji: "📚",
-    blurb: "Paste a problem — never the finished answer first",
+    blurb: "Paste a problem — guide, don't spoil",
   },
   math: { label: "Math", emoji: "🔢", blurb: "Steps, not spoilers" },
   reading: { label: "Reading", emoji: "📖", blurb: "Understand, then explain" },
   writing: { label: "Writing", emoji: "✍️", blurb: "Outline and revise together" },
-  science: { label: "Science", emoji: "🔬", blurb: "Observe, guess, test" },
-  open: { label: "Explore", emoji: "🧭", blurb: "Any curious question" },
+  science: { label: "Science", emoji: "🔬", blurb: "How the world works" },
+  world: {
+    label: "World",
+    emoji: "🌍",
+    blurb: "History, places, cultures, nature",
+  },
+  arts: { label: "Arts", emoji: "🎨", blurb: "Music, drawing, stories, sports" },
+  open: { label: "Explore", emoji: "🧭", blurb: "Any curious kid-safe question" },
 };
 
 export const COACH_ACTIONS: Array<{
@@ -61,7 +69,7 @@ export function coachDirective(mode: CoachMode): string {
     case "check_work":
       return "The learner wants you to check their attempt. Ask them to paste/share their answer or steps if missing. If they shared work: mark what's solid, ask one precise fix question for any error, and NEVER rewrite the whole solution for them to copy.";
     case "quiz_me":
-      return "Ask ONE short check question about what you just taught (multiple choice verbally or fill-in). Wait for their reply; do not reveal the answer yet.";
+      return "Ask ONE short check question about what you just taught (multiple choice verbally or fill-in). Wait for their reply; do not reveal the answer yet. Prefer a fresh angle — not a word-for-word repeat of the last question.";
   }
 }
 
@@ -93,7 +101,7 @@ export function detectRevealRequest(text: string): boolean {
 
 export function inferSubject(text: string): SubjectFocus | null {
   const lower = text.toLowerCase();
-  if (/\b(\d+\s*[x×*+\-/÷]\s*\d+|fraction|equation|algebra|geometry|multiply|divide)\b/.test(lower)) {
+  if (/\b(\d+\s*[x×*+\-/÷]\s*\d+|fraction|equation|algebra|geometry|multiply|divide|percent)\b/.test(lower)) {
     return "math";
   }
   if (/\b(paragraph|essay|sentence|grammar|write|thesis|outline)\b/.test(lower)) {
@@ -102,11 +110,32 @@ export function inferSubject(text: string): SubjectFocus | null {
   if (/\b(read|passage|story|chapter|vocab|character|theme)\b/.test(lower)) {
     return "reading";
   }
-  if (/\b(science|atom|gravity|cell|planet|experiment|energy|force)\b/.test(lower)) {
+  if (
+    /\b(science|atom|gravity|cell|planet|experiment|energy|force|chemistry|biology|physics|electric|magnet)\b/.test(
+      lower,
+    )
+  ) {
     return "science";
+  }
+  if (
+    /\b(history|ancient|civilization|geography|continent|country|map|culture|language|ocean|animal|nature|forest|dinosaur)\b/.test(
+      lower,
+    )
+  ) {
+    return "world";
+  }
+  if (
+    /\b(art|music|paint|draw|song|instrument|dance|sport|soccer|basketball|hobby)\b/.test(lower)
+  ) {
+    return "arts";
   }
   if (/\b(homework|worksheet|assignment|problem)\b/.test(lower)) {
     return "homework";
+  }
+  if (
+    /\b(why|how come|what is|what's|how does|how do|tell me about|curious)\b/.test(lower)
+  ) {
+    return "open";
   }
   return null;
 }
