@@ -1,34 +1,18 @@
-<<<<<<< HEAD
-# Venture 1 — kid-safe AI tutor
-=======
-# Venture 1 — advanced homework helper
->>>>>>> a88a990 (Advance Venture 1 to v3 homework helper)
+# Venture 1 — kid-safe curious tutor
 
-**The homework helper that never gives the answer first.**
+**Guides homework without spoilers. Explores science, history, places, arts, and how things work.**
 
-<<<<<<< HEAD
+Venture 1 is a Socratic tutor for kids: smarter explanations, wider kid-appropriate knowledge, age-banded depth, coach action buttons, subject focus, mastery tracking, XP/streaks, guided adventures, quizzes, and a parent report.
+
 ## Features
-=======
-Venture 1 guides kids with a hint ladder (not spoilers), age-banded tutoring, coach action buttons, subject focus, mastery tracking, XP/streaks, guided adventures, quizzes, and a parent report.
 
-## What's new in v3
-
-- Product focus: homework helper that never hands over answers first
-- Giant coach buttons under replies: I get it · Simpler · Another way · Show example · Hint · Check my work · Quiz me
-- Subject modes: Homework / Math / Reading / Writing / Science / Explore
-- Stuck detection (auto-simplifies when a child sounds lost)
-- Subject mastery bars + “Practice weak spot”
-- Session insights in the parent report (coach uses, reveals, concepts)
-- Homework-first adventures and daily challenges
-
-## Still included from v2
->>>>>>> a88a990 (Advance Venture 1 to v3 homework helper)
-
-- Age bands: Little Explorer / Explorer / Teen Explorer
-- Hint ladder stages 1–5
-- Streaming replies
-- XP, levels, and daily streaks
-- Passport stamps, voice input, read-aloud
+- Age bands: Little Explorer / Explorer / Teen Explorer (depth & wording only — topic range stays wide)
+- Wide subjects: Homework, Math, Reading, Writing, Science, World, Arts, Explore
+- Hint ladder stages 1–5 for school problems (never spoils first)
+- Coach buttons: I get it · Simpler · Another way · Show example · Hint · Check my work · Quiz me
+- Stuck detection, mastery bars, session insights
+- Streaming replies, XP/streaks, passport, voice, read-aloud
+- Unique Quiz Me rounds (seeded bank + exclusions)
 - Laptop-friendly two-column layout
 
 ## Local development
@@ -50,9 +34,6 @@ Without an API key, demo mode still works (including staged hints, coach actions
 2. Variables:
    - `ANTHROPIC_API_KEY` (preferred)
    - or `OPENAI_API_KEY` (also enables moderation + true token streaming)
+   - Optional: `ANTHROPIC_MODEL`, `OPENAI_MODEL` (defaults: `claude-sonnet-4-6`, `gpt-4o`)
 3. Enable public networking
-<<<<<<< HEAD
-4. Health: `GET /api/health`
-=======
 4. Health: `GET /api/health` → should list `"version":"3.0.0"` and features
->>>>>>> a88a990 (Advance Venture 1 to v3 homework helper)
