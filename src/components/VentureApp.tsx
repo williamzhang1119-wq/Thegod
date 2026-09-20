@@ -188,7 +188,7 @@ interface SpeechRecognitionErrorEvent extends Event {
 }
 
 const WELCOME =
-  "Hi — I'm Venture 1 🧭 the homework helper that never gives the answer first. Pick a subject, paste a problem, and use the big buttons under my replies when you need simpler, another way, a hint, or a check.";
+  "Hi — I'm Venture 1 🧭 your curious tutor. Ask about homework, science, history, places, music, sports, how things work — almost any kid-safe question. For school problems I guide with hints (I never spoil first). Use the buttons under my replies for simpler, another way, a hint, or a check.";
 
 export function VentureApp() {
   const daily = useMemo(() => dailyChallengeForToday(), []);
@@ -640,7 +640,7 @@ export function VentureApp() {
           : SUBJECTS[subjectFocus].label
         : quizTopic;
 
-    const quizSystemPrompt = `You generate quiz questions for Venture 1, a homework helper for kids. Create exactly 4 fun, age-appropriate multiple-choice questions for kids aged 6-14, medium difficulty, focused on ${focus}.${
+    const quizSystemPrompt = `You generate quiz questions for Venture 1, a kid-safe curious tutor. Create exactly 4 fun, age-appropriate multiple-choice questions for kids aged 6-14, medium difficulty, focused on ${focus}.${
       topicHints.length
         ? ` The child has shown interest in: ${topicHints.join(", ")}. Naturally include at least 2 questions touching those topics.`
         : ""
@@ -830,7 +830,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         kind: "message",
         id: "welcome",
         role: "assistant",
-        content: "Fresh map! I'm Venture 1 🧭 Paste a homework problem and I'll guide — not spoil.",
+        content: "Fresh map! I'm Venture 1 🧭 Ask me anything kid-safe — homework, science, history, how things work. For school problems I'll guide, not spoil.",
         coachable: false,
       },
     ]);
@@ -850,9 +850,11 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
     }
     const spot = weak[0];
     setSubjectFocus(
-      (["math", "reading", "writing", "science"] as SubjectFocus[]).includes(spot as SubjectFocus)
+      (
+        ["math", "reading", "writing", "science", "world", "arts"] as SubjectFocus[]
+      ).includes(spot as SubjectFocus)
         ? (spot as SubjectFocus)
-        : "homework",
+        : "open",
     );
     void sendMessage(`I want to practice ${spot}. Give me one guided problem — don't reveal the answer yet.`);
   }
@@ -942,7 +944,7 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
         </svg>
         <div className="header-copy">
           <h1>Venture 1</h1>
-          <p>The homework helper that never gives the answer first</p>
+          <p>Curious tutor — guides homework, explores the world</p>
         </div>
         <div className="header-meters">
           <div className="meter-wrap">
@@ -1407,8 +1409,9 @@ Respond with ONLY raw valid JSON, no markdown formatting, no code fences, no ext
               </div>
             ) : null}
             <p>
-              Venture 1 is built as a homework helper that never gives the answer first. Chat stays
-              on this device (browser storage) unless you clear it.
+              Venture 1 is a kid-safe curious tutor: it guides homework without spoiling answers,
+              and explores science, history, places, arts, and more. Chat stays on this device
+              (browser storage) unless you clear it.
             </p>
             <div className="modal-actions">
               <button type="button" className="tool-btn" onClick={() => setShowParent(false)}>

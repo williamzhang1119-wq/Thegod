@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import type { CoachMode, SubjectFocus } from "@/lib/coach";
-import { generateReply, streamReply, type ChatTurn } from "@/lib/openai";
+import {
+  CHAT_HISTORY_TURNS,
+  generateReply,
+  streamReply,
+  type ChatTurn,
+} from "@/lib/openai";
 import {
   REFUSAL_MESSAGE,
   buildSystemPrompt,
@@ -26,6 +31,8 @@ const SUBJECTS: SubjectFocus[] = [
   "reading",
   "writing",
   "science",
+  "world",
+  "arts",
   "open",
 ];
 
@@ -159,7 +166,7 @@ export async function POST(req: Request) {
           (m.role === "user" || m.role === "assistant") &&
           typeof m.content === "string",
       )
-      .slice(-16)
+      .slice(-CHAT_HISTORY_TURNS)
       .map((m) => ({
         role: m.role,
         content: redactPii(m.content).slice(0, 2000),
@@ -188,7 +195,7 @@ export async function POST(req: Request) {
               (m.role === "user" || m.role === "assistant") &&
               typeof m.content === "string",
           )
-          .slice(-8)
+          .slice(-(CHAT_HISTORY_TURNS - 1))
           .map((m) => ({
             role: m.role,
             content: redactPii(m.content).slice(0, 800),
@@ -227,7 +234,7 @@ export async function POST(req: Request) {
   const genOpts = {
     system,
     messages,
-    maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : 1200,
+    maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : 1400,
     model: typeof body.model === "string" ? body.model : undefined,
     ageBand,
     attemptLevel,

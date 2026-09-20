@@ -47,10 +47,17 @@ export function demoReply(
 
   const sky = lower.includes("sky") || lower.includes("blue");
   const math = lower.includes("12") || lower.includes("multiply") || /\d+\s*[x×*]\s*\d+/.test(lower);
-  const computer = lower.includes("computer") || lower.includes("code");
+  const computer = lower.includes("computer") || lower.includes("code") || lower.includes("program");
   const dino = lower.includes("dino");
   const dream = lower.includes("dream");
   const money = lower.includes("money");
+  const continent =
+    lower.includes("continent") || lower.includes("country") || lower.includes("geography");
+  const music = lower.includes("music") || lower.includes("song") || lower.includes("instrument");
+  const history =
+    lower.includes("history") || lower.includes("ancient") || lower.includes("writing");
+  const volcano = lower.includes("volcano") || lower.includes("earthquake");
+  const sport = lower.includes("sport") || lower.includes("soccer") || lower.includes("basketball");
 
   if (sky) {
     const replies = [
@@ -118,6 +125,61 @@ export function demoReply(
     return replies[stage - 1];
   }
 
+  if (continent) {
+    const replies = [
+      "Map explorer mode! What's your best guess: is a continent bigger than a country, or the other way around?",
+      "Hint: continents are huge landmasses. Countries are places with their own governments. Which one can contain many of the other?",
+      "Stronger clue: Africa is a continent with many countries inside it. So which word means the bigger land idea?",
+      "Almost: continent = big land region; country = a nation with borders and rules. Can you give one example of each?",
+      "Reveal: a continent is a large landmass; a country is a nation with its own government. Continents hold many countries. Name one continent and one country on it!",
+    ];
+    return replies[stage - 1];
+  }
+
+  if (music) {
+    const replies = [
+      "Music mystery! What do you notice first in a happy song — the speed, the notes, or the words?",
+      "Hint: faster tempos and brighter-sounding note patterns often feel cheerful. What might a slow, low song feel like?",
+      "Stronger clue: major-sounding note families often feel bright; minor ones often feel sadder — though culture and lyrics matter too. What song feeling are you thinking of?",
+      "Nearly there: mood in music comes from tempo, pitch patterns, loudness, and lyrics together. Which piece would you change first to make a song feel braver?",
+      "Reveal: songs feel different because of tempo, pitch patterns, dynamics, and words — and scientists still study exactly why. What's one song you'd use to teach 'happy' vs 'calm'?",
+    ];
+    return replies[stage - 1];
+  }
+
+  if (history) {
+    const replies = [
+      "History trek! Before writing, how do you think people passed important ideas along?",
+      "Hint: memory and speaking work, but they fade. What problem appears when a message must travel far or last for years?",
+      "Stronger clue: marks on clay, stone, or paper can outlive a single storyteller. What could those marks be for?",
+      "Almost: writing stores words so others can read them later. What kinds of things would people most want to record first?",
+      "Reveal: people invented writing to keep records, laws, stories, and trade notes beyond one person's memory. If you invented writing today, what would you record first?",
+    ];
+    return replies[stage - 1];
+  }
+
+  if (volcano) {
+    const replies = [
+      "Earth power question! What do you think is under the ground near a volcano — cold rock only, or something hotter?",
+      "Hint: deep Earth is very hot. Rock can melt into magma. What might happen if that melt finds a path up?",
+      "Stronger clue: pressure and melted rock can push toward the surface. What comes out when it breaks through?",
+      "Nearly: lava, ash, and gas can erupt. Why might people still live near volcanoes even knowing that?",
+      "Reveal: volcanoes erupt when hot melted rock and gas rise from underground. Soil nearby can be rich for farming — but eruptions are dangerous. What safety rule would you make for visitors?",
+    ];
+    return replies[stage - 1];
+  }
+
+  if (sport) {
+    const replies = [
+      "Sports science! Besides running fast, what else helps a team win — timing, teamwork, or practice?",
+      "Hint: practice builds skill memory in your brain and body. Why might repeating a move make it feel easier?",
+      "Stronger clue: teamwork means passing, spacing, and reading teammates. What's one job besides scoring?",
+      "Almost: fitness, skill, strategy, and mindset all matter. Which one would you train first for your favorite sport?",
+      "Reveal: sports mix body skill, practice, strategy, and teamwork. Pick your sport — what's one tiny drill that would make you better this week?",
+    ];
+    return replies[stage - 1];
+  }
+
   const generic = [
     "Ooh, let's explore that! What's your best guess so far — even a wild one helps.",
     "Nice thinking so far. What's one clue in the question that feels most important?",
@@ -127,6 +189,11 @@ export function demoReply(
   ];
   return generic[stage - 1];
 }
+
+/** Chat generation defaults — env can override models. */
+export const CHAT_TEMPERATURE = 0.5;
+export const CHAT_HISTORY_TURNS = 24;
+export const DEFAULT_MAX_TOKENS = 1400;
 
 type GenOptions = {
   system?: string;
@@ -150,6 +217,7 @@ async function chatWithAnthropic(options: {
   system: string;
   messages: ChatTurn[];
   maxTokens: number;
+  temperature?: number;
 }): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -161,6 +229,7 @@ async function chatWithAnthropic(options: {
     body: JSON.stringify({
       model: options.model,
       max_tokens: options.maxTokens,
+      temperature: options.temperature ?? CHAT_TEMPERATURE,
       system: options.system,
       messages: options.messages.map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
@@ -191,6 +260,7 @@ async function chatWithOpenAI(options: {
   system: string;
   messages: ChatTurn[];
   maxTokens: number;
+  temperature?: number;
 }): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -200,7 +270,7 @@ async function chatWithOpenAI(options: {
     },
     body: JSON.stringify({
       model: options.model,
-      temperature: 0.6,
+      temperature: options.temperature ?? CHAT_TEMPERATURE,
       max_tokens: options.maxTokens,
       messages: [{ role: "system", content: options.system }, ...options.messages],
     }),
@@ -232,8 +302,8 @@ export async function generateReply(
       masteryHints: options.masteryHints,
       stuck: options.stuck,
     });
-  const maxTokens = options.maxTokens || 1200;
-  const messages = options.messages.slice(-16);
+  const maxTokens = options.maxTokens || DEFAULT_MAX_TOKENS;
+  const messages = options.messages.slice(-CHAT_HISTORY_TURNS);
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (anthropicKey) {
@@ -250,7 +320,8 @@ export async function generateReply(
 
   const openaiKey = process.env.OPENAI_API_KEY;
   if (openaiKey) {
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    // Prefer a stronger default for clearer tutoring; override with OPENAI_MODEL.
+    const model = options.model || process.env.OPENAI_MODEL || "gpt-4o";
     const text = await chatWithOpenAI({
       apiKey: openaiKey,
       model,
@@ -274,8 +345,8 @@ export async function generateReply(
     else if (raw.includes("math")) topic = "math";
     else if (raw.includes("reading") || raw.includes("writing") || raw.includes("homework")) topic = "mixed";
     else if (raw.includes("nature")) topic = "nature";
-    else if (raw.includes("history")) topic = "history";
-    else if (raw.includes("art")) topic = "arts";
+    else if (raw.includes("history") || raw.includes("world") || raw.includes("geography")) topic = "history";
+    else if (raw.includes("art") || raw.includes("music")) topic = "arts";
     else if (raw.includes("tech")) topic = "tech";
   }
   // Prefer explicit seed from user message: "seed=12345"
@@ -309,15 +380,15 @@ export async function streamReply(
       masteryHints: options.masteryHints,
       stuck: options.stuck,
     });
-  const messages = options.messages.slice(-16);
-  const maxTokens = options.maxTokens || 1200;
+  const messages = options.messages.slice(-CHAT_HISTORY_TURNS);
+  const maxTokens = options.maxTokens || DEFAULT_MAX_TOKENS;
 
   const openaiKey = process.env.OPENAI_API_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
   // Prefer OpenAI for true token streaming when available
   if (openaiKey && !anthropicKey) {
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    const model = options.model || process.env.OPENAI_MODEL || "gpt-4o";
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -326,7 +397,7 @@ export async function streamReply(
       },
       body: JSON.stringify({
         model,
-        temperature: 0.6,
+        temperature: CHAT_TEMPERATURE,
         max_tokens: maxTokens,
         stream: true,
         messages: [{ role: "system", content: system }, ...messages],
